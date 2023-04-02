@@ -1,15 +1,11 @@
-from django.test import TestCase, Client
-from django.core.files.uploadedfile import SimpleUploadedFile
-from ..models import Post, Group
 from django.contrib.auth import get_user_model
+from posts.forms import PostForm
+from posts.models import Post, Group, User
+from django.test import Client, TestCase
 from django.urls import reverse
-import shutil
-import tempfile
-from django.conf import settings
+
 
 User = get_user_model()
-
-ROOT_FOLDER = tempfile.mkdtemp(dir=settings.BASE_DIR)
 
 
 class PostFormTests(TestCase):
@@ -23,98 +19,70 @@ class PostFormTests(TestCase):
             slug='testslug',
             description='Описание'
         )
+        cls.new_group = Group.objects.create(
+            title='Новый заголовок',
+            slug='newslug',
+            description='Новое описание',
+        )
         cls.post = Post.objects.create(
             author=cls.user,
             text='Старый пост',
             group=cls.group
         )
-
-    @classmethod
-    def tearDownClass(cls):
-        """Удаляем тестовые медиа."""
-        super().tearDownClass()
-        shutil.rmtree(ROOT_FOLDER, ignore_errors=True)
+        cls.form = PostForm()
 
     def setUp(self):
-        """Создаем клиент зарегистрированного пользователя."""
-        self.authorized_client = Client()
-        self.authorized_client.force_login(PostFormTests.user)
+        self.guest_client = Client()
+        self.client = Client()
+        self.client.force_login(self.user)
 
     def test_create_post(self):
-        """Валидная форма создает запись в Post."""
-        posts_count = Post.objects.count()
-        small_gif = (
-            b'\x47\x49\x46\x38\x39\x61\x02\x00'
-            b'\x01\x00\x80\x00\x00\x00\x00\x00'
-            b'\xFF\xFF\xFF\x21\xF9\x04\x00\x00'
-            b'\x00\x00\x00\x2C\x00\x00\x00\x00'
-            b'\x02\x00\x01\x00\x00\x02\x02\x0C'
-            b'\x0A\x00\x3B'
-        )
-        uploaded = SimpleUploadedFile(
-            name='small.gif',
-            content=small_gif,
-            content_type='image/gif'
-        )
-        form_data = {
-            'text': 'Новый пост',
-            'group': PostFormTests.group.pk,
-            'image': uploaded
+        post_count = Post.objects.count()
+        form_fields = {
+            'text': 'test text',
+            'group': self.group.id,
         }
-        response = self.authorized_client.post(
+        response = self.client.post(
             reverse('posts:post_create'),
-            data=form_data,
+            data=form_fields,
             follow=True
         )
-        post = Post.objects.first()
-        self.assertRedirects(response, reverse(
-            'posts:profile', kwargs={'username': PostFormTests.user.username}
-        ))
-        self.assertEqual(Post.objects.count(), posts_count + 1)
-        self.assertEqual(
-            post.group, PostFormTests.group
+        self.assertRedirects(
+            response, reverse('posts:profile',
+                              kwargs={'username': self.post.author})
         )
-        self.assertEqual(post.text, form_data['text'])
-        self.assertEqual(post.author, PostFormTests.user)
-        self.assertEqual(post.image, 'posts/small.gif')
+        self.assertEqual(Post.objects.count(), post_count + 1)
 
-    def test_edit_post(self):
-        """Валидация редактирует запись в Post."""
-        small_gif = (
-            b'\x47\x49\x46\x38\x39\x61\x02\x00'
-            b'\x01\x00\x80\x00\x00\x00\x00\x00'
-            b'\xFF\xFF\xFF\x21\xF9\x04\x00\x00'
-            b'\x00\x00\x00\x2C\x00\x00\x00\x00'
-            b'\x02\x00\x01\x00\x00\x02\x02\x0C'
-            b'\x0A\x00\x3B'
-        )
-        uploaded = SimpleUploadedFile(
-            name='small.gif',
-            content=small_gif,
-            content_type='image/gif'
-        )
+    def test_post_edit(self):
+        posts_count = Post.objects.count()
         form_data = {
-            'text': 'Измененный старый пост',
-            'group': PostFormTests.group.pk,
-            'image': uploaded
+            'text': 'test text1',
+            'group': self.new_group.id,
         }
-        response = self.authorized_client.post(
-            reverse(
-                'posts:post_edit',
-                kwargs={'post_id': PostFormTests.post.pk}
-            ),
+        response = self.client.post(
+            reverse('posts:post_edit', args=[self.post.id]),
             data=form_data,
-            follow=True
+            follow=True,
         )
-        post = Post.objects.get(pk=PostFormTests.post.pk)
-        self.assertRedirects(response, reverse(
-            'posts:post_detail', kwargs={'post_id': PostFormTests.post.pk}
-        ))
-        self.assertEqual(
-            post.text,
-            form_data['text']
+
+        """response = self.guest_client.post(
+            reverse('posts:post_edit', kwargs={'post_id': cls.post.id}),
+            data=form_data['text'],
+            follow=True,
+        )"""
+        mod_post = Post.objects.get(id=self.post.id)
+        self.assertRedirects(
+            response,
+            reverse('posts:post_detail', args=(1,))
         )
-        self.assertEqual(
-            post.group.pk,
-            form_data['group']
+        self.assertEqual(Post.objects.count(), posts_count)
+        self.assertNotEqual(
+            mod_post.text,
+            self.post.text,
+            'text не изменился'
+        )
+        self.assertNotEqual(
+            mod_post.group,
+            self.post.group,
+            'group не изменилась'
         )

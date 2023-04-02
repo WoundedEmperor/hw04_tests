@@ -1,13 +1,9 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase, Client
-from django.urls import reverse
 
 from ..models import User, Post, Group
 
 User = get_user_model()
-
-INDEX_URL = reverse('post:index')
-CREATE_POST_URL = reverse('posts:post_create')
 
 
 class URLTests(TestCase):
